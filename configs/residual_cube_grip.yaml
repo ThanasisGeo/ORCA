@@ -1,0 +1,54 @@
+# Stage 1b: residual PPO from the scripted grasp (fresh start), left hand, random cubes,
+# reward = "don't drop it" + a small grip-force penalty relative to what each object needs.
+# Longer hold after the table is removed (2.5 s instead of 1 s).
+
+name: residual_cube_grip
+seed: 0
+
+env:                         # passed to orca_sim.OrcaHandGrasp
+  side: left
+  obs_mode: full             # full | proprio
+  objects: cubes             # set from orca_sim/grasp_objects.py OBJECT_SETS, or a list of names
+  object_mass: [0.02, 0.15]  # kg, sampled per episode
+  object_friction: [0.5, 1.2]  # now really used for hand-object contacts (object has contact priority)
+  object_xy_jitter: 0.005
+  max_episode_steps: 400     # 4 s: 1.5 s grasp + 2.5 s hold without the table
+  table_removal_step: 150
+  motor_force_limit: 0.3     # N*m per motor (model default 1.0). Below ~0.3 the thumb cannot swing in to oppose the fingers
+  grip_safety_factor: 2.0    # grip_excess = force above 2x the minimum needed (m*g/mu)
+  reward_weights:
+    reach: 0.5
+    hold: 1.0
+    drop: -10.0
+    success: 10.0
+    action_rate: -0.01
+    grip_excess: -0.01       # gentle, linear: -0.01 per newton too much, per step
+    grip_excess_sq: -0.001   # grows fast for large excess: 10 N too much -> -0.1/step, 30 N -> -0.9/step
+
+residual:
+  scale: 0.3
+  close_steps: 80
+
+training:
+  n_envs: 16
+  total_timesteps: 4_000_000
+  normalize_obs: true
+  normalize_reward: true
+  eval_every: 100_000
+  eval_episodes: 32
+  torch_threads: 4
+
+ppo:
+  n_steps: 400               # one episode per env per update; 16 envs -> 6400 samples/update
+  batch_size: 1600
+  n_epochs: 5
+  learning_rate: 3.0e-4
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip_range: 0.2
+  ent_coef: 0.0
+  target_kl: 0.03
+  policy_kwargs:
+    log_std_init: -1.0
+    net_arch: {pi: [256, 256], vf: [256, 256]}
+    activation_fn: ELU
